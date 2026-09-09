@@ -21,8 +21,11 @@ function createProcessor(
     }
     window.api.sendRecorderAudioChunk(int16.buffer, channel)
   }
+  const muteNode = ctx.createGain()
+  muteNode.gain.value = 0
   audioSource.connect(processor)
-  processor.connect(ctx.destination)
+  processor.connect(muteNode)
+  muteNode.connect(ctx.destination)
   return { ctx, processor }
 }
 

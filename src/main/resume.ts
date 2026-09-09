@@ -46,7 +46,7 @@ export const resumeData: ResumeData = {
   companyName: '',
   companyInfo: '',
   priority: { ...DEFAULT_PRIORITY },
-  enabled: false
+  enabled: true
 }
 
 // ─── File Parsing ─────────────────────────────────────────────────────

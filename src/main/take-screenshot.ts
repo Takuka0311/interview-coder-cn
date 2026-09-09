@@ -1,24 +1,28 @@
 import { desktopCapturer, screen } from 'electron'
 
-export function takeScreenshot(): Promise<string | void> {
+const MAX_WIDTH = 1280
+
+export async function takeScreenshot(): Promise<string | void> {
   const mainWindow = global.mainWindow
-  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve()
+  if (!mainWindow || mainWindow.isDestroyed()) return
 
-  // Get the primary display's size.
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width, height } = primaryDisplay.size
+  try {
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width, height } = primaryDisplay.size
+    const scale = Math.min(1, MAX_WIDTH / Math.max(width, 1))
+    const thumbnailSize = {
+      width: Math.max(640, Math.round(width * scale)),
+      height: Math.max(360, Math.round(height * scale))
+    }
 
-  return desktopCapturer
-    .getSources({ types: ['screen'], thumbnailSize: { width, height } })
-    .then((sources) => {
-      if (sources.length > 0) {
-        const screenshot = sources[0]?.thumbnail.toPNG()
-        const base64Data = screenshot.toString('base64')
-        return base64Data
-      }
-      return undefined
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize
     })
-    .catch((error) => {
-      console.error('Error taking screenshot:', error)
-    })
+    if (sources.length === 0) return undefined
+    return sources[0]?.thumbnail.toPNG().toString('base64')
+  } catch (error) {
+    console.error('Error taking screenshot:', error)
+    return undefined
+  }
 }

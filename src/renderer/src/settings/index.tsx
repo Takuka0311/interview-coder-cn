@@ -11,7 +11,6 @@ import {
   Keyboard,
   FolderOpen,
   Mic,
-  Volume2,
   Radio,
   FileText,
   Search,
@@ -50,7 +49,7 @@ const statusBarShortcutHintOptions: Array<{
   { action: 'appendScreenshot', label: '追加截图', description: '在当前对话中追加题目截图' },
   { action: 'takeScreenshot', label: '新开对话', description: '截图并重新开始一轮解题' },
   { action: 'stopSolutionStream', label: '停止生成', description: '打断当前正在生成的内容' },
-  { action: 'toggleResponseMode', label: '切换模式', description: '核心代码 / ACM / 自定义模式' },
+  { action: 'toggleResponseMode', label: '切换模式', description: '面试稿 / 核心代码 / ACM / 自定义模式' },
   { action: 'codeIdea', label: '解题思路', description: '输出适合口述的代码思路' },
   { action: 'alternativeSolution', label: '换个解法', description: '请求另一种解法' },
   { action: 'toggleTranscription', label: '语音转录', description: '开始或暂停实时语音转录' },
@@ -66,8 +65,7 @@ const statusBarShortcutHintOptions: Array<{
   { action: 'moveMainWindowDown', label: '下移窗口', description: '向下移动主窗口' },
   { action: 'moveMainWindowLeft', label: '左移窗口', description: '向左移动主窗口' },
   { action: 'moveMainWindowRight', label: '右移窗口', description: '向右移动主窗口' },
-  { action: 'voiceQuery', label: '语音对话', description: '无需截图直接语音问 AI' },
-  { action: 'toggleTTS', label: '朗读开关', description: '开启或关闭答案朗读' },
+  { action: 'voiceQuery', label: '文字回答', description: '只发转写文字，不截图，更快' },
   { action: 'startRecording', label: '开始录制', description: '显示开始录音快捷键提示' },
   { action: 'stopRecording', label: '停止录制', description: '显示停止录音快捷键提示' }
 ]
@@ -85,8 +83,6 @@ export default function SettingsPage() {
     screenshotDir,
     dashscopeApiKey,
     transcriptionModel,
-    ttsProvider,
-    ttsEnabled,
     audioSource,
     systemAudioDeviceId,
     micDeviceId,
@@ -98,7 +94,6 @@ export default function SettingsPage() {
     visionApiKey,
     visionModel,
     responseMode,
-    voiceWordLimit,
     aiAnswerFontSize,
     statusBarShortcutHints,
     updateSetting
@@ -911,7 +906,8 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">
                 百炼平台 API Key
                 <span className="ml-2 text-xs font-light">
-                  从阿里云
+                  可与上方 AI Key 填同一把。留空时自动复用 AI 设置里的 Key。需开通
+                  fun-asr-realtime。从阿里云
                   <a
                     href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key"
                     target="_blank"
@@ -920,7 +916,7 @@ export default function SettingsPage() {
                   >
                     百炼平台
                   </a>
-                  获取，如不需要语音转录功能可跳过
+                  获取
                 </span>
               </label>
               <div className="flex items-center w-60">
@@ -1058,81 +1054,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* TTS Settings */}
-        <div className="bg-gray-300/80 rounded-lg p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
-            <Volume2 className="h-5 w-5 mr-2" />
-            语音合成 (TTS)
-          </h2>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">
-                TTS 引擎
-                <span className="ml-2 text-xs font-light">
-                  浏览器内置免费，百炼平台需消耗 API 额度
-                </span>
-              </label>
-              <div className="w-60 flex items-center gap-2">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="ttsProvider"
-                    value="web-speech"
-                    checked={ttsProvider === 'web-speech'}
-                    onChange={() => updateSetting('ttsProvider', 'web-speech')}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm">浏览器内置</span>
-                </label>
-                <label className="flex items-center gap-1 cursor-pointer ml-4">
-                  <input
-                    type="radio"
-                    name="ttsProvider"
-                    value="dashscope"
-                    checked={ttsProvider === 'dashscope'}
-                    onChange={() => updateSetting('ttsProvider', 'dashscope')}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm">百炼平台</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">
-                自动朗读答案
-                <span className="ml-2 text-xs font-light">
-                  AI 回答完成后自动使用语音朗读
-                </span>
-              </label>
-              <Switch
-                className="scale-y-90"
-                checked={ttsEnabled}
-                onCheckedChange={(checked) => updateSetting('ttsEnabled', checked)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">
-                语音回答字数上限
-                <span className="ml-2 text-xs font-light">
-                  数值越小回答越快，推荐 200-500 字
-                </span>
-              </label>
-              <div className="w-60 flex items-center gap-2">
-                <Slider
-                  min={100}
-                  max={1000}
-                  step={50}
-                  value={[voiceWordLimit]}
-                  onValueChange={([v]) => updateSetting('voiceWordLimit', v)}
-                />
-                <span className="text-xs w-10 text-right">{voiceWordLimit}</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <div className="bg-gray-300/80 rounded-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center">
@@ -1145,12 +1066,33 @@ export default function SettingsPage() {
               <label className="text-sm font-medium pt-1">
                 回答模式
                 <span className="ml-2 text-xs font-light block mt-0.5">
-                  核心代码模式仅输出解题代码，紧凑在一页以内；
-                  <br />
-                  ACM模式输出可直接运行的完整代码；自定义模式可自由编写提示词
+                  面试稿模式按简历写口述回答；核心代码 / ACM 用于算法题；自定义可改提示词
                 </span>
               </label>
               <div className="w-60 space-y-2">
+                <div
+                  className={`border rounded-md p-3 cursor-pointer transition-colors ${
+                    responseMode === 'interview'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 bg-white hover:border-gray-400'
+                  }`}
+                  onClick={() => updateSetting('responseMode', 'interview')}
+                >
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="responseMode"
+                      value="interview"
+                      checked={responseMode === 'interview'}
+                      onChange={() => updateSetting('responseMode', 'interview')}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-medium">面试稿模式</span>
+                  </label>
+                  <p className="text-xs text-gray-400 ml-5 mt-1">
+                    默认按简历写第一人称口述稿，算法题才出代码
+                  </p>
+                </div>
                 <div
                   className={`border rounded-md p-3 cursor-pointer transition-colors ${
                     responseMode === 'core-code'

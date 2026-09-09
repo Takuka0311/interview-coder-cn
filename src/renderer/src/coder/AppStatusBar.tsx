@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pointer, PointerOff, OctagonX, MessageCircle, Volume2, Mic, Download } from 'lucide-react'
+import { Pointer, PointerOff, OctagonX, MessageCircle, Mic, Download } from 'lucide-react'
 import { useSolutionStore } from '@/lib/store/solution'
 import { useShortcutsStore } from '@/lib/store/shortcuts'
 import { useAppStore } from '@/lib/store/app'
@@ -38,8 +38,7 @@ const shortcutHintLabels = {
   moveMainWindowDown: '下移窗口',
   moveMainWindowLeft: '左移窗口',
   moveMainWindowRight: '右移窗口',
-  voiceQuery: '语音对话',
-  toggleTTS: '朗读',
+  voiceQuery: '文字回答',
   startRecording: '开始录制',
   stopRecording: '停止录制'
 } as const
@@ -78,8 +77,8 @@ export function AppStatusBar() {
   } = useSolutionStore()
   const { ignoreMouse } = useAppStore()
   const { shortcuts } = useShortcutsStore()
-  const { responseMode, customPrompt, ttsEnabled, statusBarShortcutHints } = useSettingsStore()
-  const { isVoiceMode, isSpeaking } = useVoiceStore()
+  const { responseMode, customPrompt, statusBarShortcutHints } = useSettingsStore()
+  const { isVoiceMode } = useVoiceStore()
   const { isRecording, systemSentenceCount, micSentenceCount } = useRecorderStore()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [questionInput, setQuestionInput] = useState('')
@@ -137,11 +136,13 @@ export function AppStatusBar() {
       ? customPrompt.trim()
         ? '再次切换可进入自定义提示词模式'
         : '未填写自定义提示词，快捷键会跳过自定义模式'
-      : '切换核心代码 / ACM / 自定义提示词模式'
+      : '切换面试稿 / 核心代码 / ACM / 自定义提示词模式'
   const configuredStatusBarShortcutHints = Array.isArray(statusBarShortcutHints)
     ? statusBarShortcutHints
     : defaultStatusBarShortcutHints
-  const visibleShortcutHints = configuredStatusBarShortcutHints.filter((action) => shortcuts[action])
+  const visibleShortcutHints = configuredStatusBarShortcutHints.filter(
+    (action) => action !== 'toggleTTS' && shortcuts[action]
+  )
 
   return (
     <div className="flex w-full shrink-0 items-center justify-between gap-1.5 text-blue-50 bg-gray-900/55 px-2 py-0.5 shadow-[0_-4px_12px_rgba(0,0,0,0.18)] backdrop-blur-sm">
@@ -176,11 +177,7 @@ export function AppStatusBar() {
               <ShortcutHint
                 key={action}
                 shortcut={shortcuts[action].key}
-                label={
-                  action === 'toggleTTS'
-                    ? `朗读${ttsEnabled ? '开' : '关'}`
-                    : shortcutHintLabels[action]
-                }
+                label={shortcutHintLabels[action]}
               />
             ))}
           </div>
@@ -203,13 +200,6 @@ export function AppStatusBar() {
             </span>
           </div>
         )}
-        {/* TTS Status Indicator */}
-        <div className="flex items-center rounded border border-blue-100/25 bg-gray-950/60 px-1.5 py-0.5 leading-none">
-          <Volume2 className={`h-3 w-3 ${isSpeaking ? 'text-green-400 animate-pulse' : 'text-blue-100/70'}`} />
-          <span className="ml-1">
-            朗读:{isSpeaking ? '中' : ttsEnabled ? '开' : '关'}
-          </span>
-        </div>
         {/* Export Conversation Button */}
         {hasContent && !isReceivingSolution && (
           <Button
@@ -288,8 +278,9 @@ export function AppStatusBar() {
   )
 }
 
-function getResponseModeLabel(mode: 'core-code' | 'acm' | 'custom') {
+function getResponseModeLabel(mode: 'interview' | 'core-code' | 'acm' | 'custom') {
   const labels = {
+    interview: '面试稿',
     'core-code': '核心代码',
     acm: 'ACM',
     custom: '自定义'

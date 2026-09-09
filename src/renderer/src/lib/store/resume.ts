@@ -58,7 +58,7 @@ const defaultState: Omit<
   companyName: '',
   companyInfo: '',
   priority: { selfInfo: 80, jd: 70, companyBusiness: 50 },
-  enabled: false
+  enabled: true
 }
 
 export const useResumeStore = create<ResumeStore>()(

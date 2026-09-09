@@ -41,7 +41,7 @@ interface Settings {
   visionApiBaseURL: string
   visionApiKey: string
   visionModel: string
-  responseMode: 'core-code' | 'acm' | 'custom'
+  responseMode: 'interview' | 'core-code' | 'acm' | 'custom'
   voiceWordLimit: number
   aiAnswerFontSize: number
   statusBarShortcutHints: StatusBarShortcutHintAction[]
@@ -70,7 +70,6 @@ export type StatusBarShortcutHintAction =
   | 'moveMainWindowLeft'
   | 'moveMainWindowRight'
   | 'voiceQuery'
-  | 'toggleTTS'
   | 'startRecording'
   | 'stopRecording'
 
@@ -80,8 +79,7 @@ export const defaultStatusBarShortcutHints: StatusBarShortcutHintAction[] = [
   'toggleResponseMode',
   'codeIdea',
   'alternativeSolution',
-  'voiceQuery',
-  'toggleTTS'
+  'voiceQuery'
 ]
 
 function normalizeApiBaseURL(url: string) {
@@ -137,7 +135,7 @@ const defaultSettings: Settings = {
   visionApiBaseURL: '',
   visionApiKey: '',
   visionModel: '',
-  responseMode: 'core-code' as const,
+  responseMode: 'interview' as const,
   voiceWordLimit: 500,
   aiAnswerFontSize: AI_ANSWER_FONT_SIZE_DEFAULT,
   statusBarShortcutHints: defaultStatusBarShortcutHints
@@ -156,7 +154,20 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'interview-coder-settings',
-      version: 5
+      version: 6,
+      migrate: (persisted) => {
+        const state = (persisted || {}) as Partial<Settings>
+        if (state.responseMode === 'core-code') {
+          state.responseMode = 'interview'
+        }
+        state.ttsEnabled = false
+        if (Array.isArray(state.statusBarShortcutHints)) {
+          state.statusBarShortcutHints = state.statusBarShortcutHints.filter(
+            (action: string) => action !== 'toggleTTS'
+          ) as Settings['statusBarShortcutHints']
+        }
+        return state as Settings
+      }
     }
   )
 )

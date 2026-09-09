@@ -138,11 +138,6 @@ export function CustomShortcuts() {
             disabled={!dashscopeApiKey}
           />
           <Shortcut
-            label="切换TTS朗读"
-            description="开启/关闭AI答案语音朗读"
-            shortcut="toggleTTS"
-          />
-          <Shortcut
             label="开始录音"
             description="开始双通道录音，同时录制面试官和自己"
             shortcut="startRecording"

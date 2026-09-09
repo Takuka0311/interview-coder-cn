@@ -30,7 +30,6 @@ process.on('uncaughtException', (error) => {
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import './shortcuts'
 import './transcription'
-import './tts'
 import './recorder'
 import './resume'
 import { createWindow } from './main-window'

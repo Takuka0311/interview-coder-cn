@@ -70,7 +70,7 @@ export const settings = {
   visionApiBaseURL: '',
   visionApiKey: '',
   visionModel: '',
-  responseMode: 'core-code' as 'core-code' | 'acm' | 'custom',
+  responseMode: 'interview' as 'interview' | 'core-code' | 'acm' | 'custom',
   voiceWordLimit: 500,
   aiAnswerFontSize: 12,
   statusBarShortcutHints: [
@@ -79,8 +79,7 @@ export const settings = {
     'toggleResponseMode',
     'codeIdea',
     'alternativeSolution',
-    'voiceQuery',
-    'toggleTTS'
+    'voiceQuery'
   ] as Array<
     | 'hideOrShowMainWindow'
     | 'ignoreOrEnableMouse'
@@ -104,7 +103,6 @@ export const settings = {
     | 'moveMainWindowLeft'
     | 'moveMainWindowRight'
     | 'voiceQuery'
-    | 'toggleTTS'
     | 'startRecording'
     | 'stopRecording'
   >

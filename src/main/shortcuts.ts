@@ -15,7 +15,7 @@ import {
 } from './ai'
 import { state } from './state'
 import { settings } from './settings'
-import { getTranscriptionText, clearTranscriptionText } from './transcription'
+import { clearTranscriptionText, consumeLatestQuestion } from './transcription'
 import { addRecordingScreenshot } from './recorder'
 
 /**
@@ -356,9 +356,6 @@ async function executeFollowUp(
         })
       }
       mainWindow.webContents.send('solution-complete')
-      if (assistantResponse) {
-        mainWindow.webContents.send('tts-speak-text', assistantResponse)
-      }
     }
   } catch (error) {
     if (streamContext.controller.signal.aborted) {
@@ -417,13 +414,14 @@ const callbacks: Record<string, () => void> = {
 
     abortCurrentStream('new-request')
     let loadingStarted = false
+    mainWindow.webContents.send('ai-loading-start')
+    loadingStarted = true
     const screenshotData = await takeScreenshot()
     if (screenshotData && mainWindow && !mainWindow.isDestroyed()) {
       saveScreenshotToDisk(screenshotData)
       addRecordingScreenshot(screenshotData)
-      const transcriptionText = getTranscriptionText()
+      const transcriptionText = consumeLatestQuestion()
       if (transcriptionText) {
-        clearTranscriptionText()
         mainWindow.webContents.send('transcription-cleared')
       }
       const { messages, extractedText } = await buildScreenshotMessages(
@@ -452,7 +450,7 @@ const callbacks: Record<string, () => void> = {
       if (transcriptionText) {
         mainWindow.webContents.send(
           'solution-chunk',
-          `> **👤 你（语音）：** ${transcriptionText}\n\n`
+          `> **🎤 面试官提问：** ${transcriptionText}\n\n`
         )
       }
       mainWindow.webContents.send('screenshots-updated', recentScreenshots)
@@ -507,9 +505,6 @@ const callbacks: Record<string, () => void> = {
             })
           }
           mainWindow.webContents.send('solution-complete')
-            if (assistantResponse) {
-              mainWindow.webContents.send('tts-speak-text', assistantResponse)
-            }
         }
       } catch (error) {
         if (streamContext.controller.signal.aborted) {
@@ -553,9 +548,8 @@ const callbacks: Record<string, () => void> = {
     if (screenshotData && mainWindow && !mainWindow.isDestroyed()) {
       saveScreenshotToDisk(screenshotData)
       addRecordingScreenshot(screenshotData)
-      const transcriptionText = getTranscriptionText()
+      const transcriptionText = consumeLatestQuestion()
       if (transcriptionText) {
-        clearTranscriptionText()
         mainWindow.webContents.send('transcription-cleared')
       }
       // Append new message to conversation
@@ -578,7 +572,7 @@ const callbacks: Record<string, () => void> = {
             {
               type: 'text',
               text: transcriptionText
-                ? `这是下一部分截图和语音转录内容：\n${transcriptionText}\n请结合之前所有截图和分析，继续分析解答，不要遗漏任何信息。`
+                ? `这是下一部分屏幕内容，以及最新的面试官语音提问：\n${transcriptionText}\n请结合之前所有截图和分析，继续回答，不要遗漏任何信息。`
                 : '这是下一部分截图，请结合之前所有截图和分析，继续分析解答，不要遗漏任何信息。'
             },
             { type: 'image', image: screenshotData }
@@ -606,7 +600,7 @@ const callbacks: Record<string, () => void> = {
       if (transcriptionText) {
         mainWindow.webContents.send(
           'solution-chunk',
-          `> **👤 你（语音）：** ${transcriptionText}\n\n`
+          `> **🎤 面试官提问：** ${transcriptionText}\n\n`
         )
       }
       mainWindow.webContents.send('solution-chunk', '**🤖 AI：**\n\n')
@@ -661,9 +655,6 @@ const callbacks: Record<string, () => void> = {
             })
           }
           mainWindow.webContents.send('solution-complete')
-            if (assistantResponse) {
-              mainWindow.webContents.send('tts-speak-text', assistantResponse)
-            }
         }
       } catch (error) {
         if (streamContext.controller.signal.aborted) {
@@ -806,12 +797,6 @@ const callbacks: Record<string, () => void> = {
     mainWindow.webContents.send('toggle-voice-conversation')
   },
 
-  toggleTTS: () => {
-    const mainWindow = global.mainWindow
-    if (!mainWindow || mainWindow.isDestroyed() || !state.inCoderPage) return
-    mainWindow.webContents.send('toggle-tts')
-  },
-
   startRecording: () => {
     const mainWindow = global.mainWindow
     if (!mainWindow || mainWindow.isDestroyed() || !state.inCoderPage) return
@@ -906,6 +891,28 @@ ipcMain.handle('updateShortcuts', (_event, _shortcuts: { action: string; key: st
   })
 })
 
+ipcMain.handle('trigger-take-screenshot', () => {
+  return callbacks.takeScreenshot()
+})
+
+ipcMain.handle('trigger-text-answer', async () => {
+  const text = consumeLatestQuestion()
+  const mainWindow = global.mainWindow
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('transcription-cleared')
+  }
+  if (!text) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(
+        'solution-error',
+        '还没有新的转写文字。先按 Alt+T 听面试官，或按 Ctrl+Q 对着麦克风说完再按一次发送。'
+      )
+    }
+    return { success: false, error: 'empty transcription' }
+  }
+  return sendTextOnlyAnswer(text)
+})
+
 ipcMain.handle('stopSolutionStream', () => {
   if (!currentStreamContext) return false
   abortCurrentStream('user')
@@ -916,7 +923,7 @@ ipcMain.handle('sendFollowUpQuestion', async (_event, question: string) => {
   return executeFollowUp(question)
 })
 
-ipcMain.handle('send-voice-query', async (_event, text: string) => {
+async function sendTextOnlyAnswer(text: string): Promise<{ success: boolean; error?: string }> {
   const mainWindow = global.mainWindow
   if (!mainWindow || mainWindow.isDestroyed() || !state.inCoderPage || !settings.apiKey) {
     return { success: false, error: 'Invalid state' }
@@ -935,7 +942,7 @@ ipcMain.handle('send-voice-query', async (_event, text: string) => {
     content: [
       {
         type: 'text',
-        text: `这是语音输入的问题：\n${text}`
+        text: `这是面试现场的文字问题，请结合候选人简历直接写口述稿，不要截图、不要说这不是题目：\n${text}`
       }
     ]
   })
@@ -943,7 +950,7 @@ ipcMain.handle('send-voice-query', async (_event, text: string) => {
   // Display user voice message as chat bubble
   mainWindow.webContents.send(
     'solution-chunk',
-    `\n\n> **👤 你（语音）：** ${text}\n\n`
+    `\n\n> **💬 文字问题：** ${text}\n\n`
   )
   mainWindow.webContents.send('solution-chunk', '**🤖 AI：**\n\n')
   mainWindow.webContents.send('ai-loading-start')
@@ -994,9 +1001,6 @@ ipcMain.handle('send-voice-query', async (_event, text: string) => {
         })
       }
       mainWindow.webContents.send('solution-complete')
-            if (assistantResponse) {
-              mainWindow.webContents.send('tts-speak-text', assistantResponse)
-            }
     }
   } catch (error) {
     if (streamContext.controller.signal.aborted) {
@@ -1021,4 +1025,8 @@ ipcMain.handle('send-voice-query', async (_event, text: string) => {
   }
 
   return { success: true }
+}
+
+ipcMain.handle('send-voice-query', async (_event, text: string) => {
+  return sendTextOnlyAnswer(text)
 })

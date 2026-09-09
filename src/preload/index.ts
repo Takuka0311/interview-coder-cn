@@ -161,6 +161,14 @@ const api = {
   sendTranscriptionAudioChunk: (chunk: ArrayBuffer) =>
     ipcRenderer.send('transcription-audio-chunk', chunk),
   getTranscriptionText: () => ipcRenderer.invoke('get-transcription-text') as Promise<string>,
+  triggerTakeScreenshot: () => ipcRenderer.invoke('trigger-take-screenshot'),
+  triggerTextAnswer: () => ipcRenderer.invoke('trigger-text-answer'),
+  onTranscriptionStatus: (callback: (status: 'connecting' | 'listening') => void) => {
+    ipcRenderer.on('transcription-status', (_event, status) => callback(status))
+  },
+  removeTranscriptionStatusListener: () => {
+    ipcRenderer.removeAllListeners('transcription-status')
+  },
 
   onToggleTranscription: (callback: () => void) => {
     ipcRenderer.on('toggle-transcription', callback)

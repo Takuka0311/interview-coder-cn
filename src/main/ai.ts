@@ -16,6 +16,33 @@ const VISION_FALLBACKS: Record<string, string> = {
   siliconflow: 'Qwen/Qwen3-VL-32B-Instruct'
 }
 
+function createChatClient(baseURL: string, apiKey: string) {
+  return createOpenAI({
+    baseURL,
+    apiKey,
+    fetch: async (url, init) => {
+      if (init?.body && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body) as Record<string, unknown>
+          if (Array.isArray(body.messages)) {
+            body.stream = true
+            if (body.enable_thinking === undefined) {
+              body.enable_thinking = false
+            }
+            if (body.incremental_output === undefined) {
+              body.incremental_output = true
+            }
+          }
+          init = { ...init, body: JSON.stringify(body) }
+        } catch {
+          // keep original body
+        }
+      }
+      return fetch(url, init)
+    }
+  })
+}
+
 function getModel(_settings: AppSettings, needsVision = false) {
   const userModel = _settings.model?.trim()
   const apiUrl = settings.apiBaseURL || ''
@@ -73,7 +100,7 @@ function getSolvingProvider() {
  */
 async function extractTextFromImage(base64Image: string, abortSignal?: AbortSignal): Promise<string> {
   const { baseURL, apiKey, model } = getVisionProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const messages: ModelMessage[] = [
     {
@@ -81,7 +108,7 @@ async function extractTextFromImage(base64Image: string, abortSignal?: AbortSign
       content: [
         {
           type: 'text',
-          text: '请只提取图片中的题目内容，不要解答。直接返回题目文字即可。'
+          text: '请提取这张屏幕截图里所有对面试有用的文字：题目、代码、简历、JD、自我介绍要求、面试官问题等。不要判断这是不是题目，不要解答，直接返回提取到的文字。'
         },
         {
           type: 'image',
@@ -122,8 +149,8 @@ export async function buildScreenshotMessages(
   if (settings.useSeparateVisionModel) {
     const extractedText = await extractTextFromImage(base64Image)
     const textContent = transcriptionText
-      ? `这是语音转录内容：\n${transcriptionText}\n\n这是图片中提取的题目内容：\n${extractedText}`
-      : `这是图片中提取的题目内容：\n${extractedText}`
+      ? `请同时根据下面两类现场信息，结合候选人简历写一份能直接说的回答：\n1. 面试官语音提问：\n${transcriptionText}\n\n2. 当前屏幕内容：\n${extractedText}`
+      : `这是当前屏幕上的内容：\n${extractedText}\n\n如果是行为面、自我介绍或简历讲解，请根据候选人简历写第一人称口述稿；如果是算法题再写思路和代码。不要说这不是题目。`
     return {
       messages: [{
         role: 'user',
@@ -135,8 +162,8 @@ export async function buildScreenshotMessages(
 
   // Single-model mode: send image directly
   const textContent = transcriptionText
-    ? `这是语音转录内容：\n${transcriptionText}\n\n同时附上屏幕截图：`
-    : '这是屏幕截图'
+    ? `请同时根据下面两类现场信息，结合候选人简历写一份能直接说的回答：\n1. 面试官语音提问：\n${transcriptionText}\n\n2. 当前屏幕截图：`
+    : '这是当前屏幕截图。如果是行为面、自我介绍或简历讲解，请根据候选人简历写第一人称口述稿；如果是算法题再写思路和代码。不要说这不是题目。'
   return {
     messages: [{
       role: 'user',
@@ -151,9 +178,16 @@ export async function buildScreenshotMessages(
 // ─── Mode-specific prompts ──────────────────────────────────────────
 
 const MODE_PROMPTS: Record<string, string> = {
+  interview:
+    '你是候选人的实时面试副驾。默认输出第一人称口述稿，让候选人能立刻照着说。\n' +
+    '- 行为面、自我介绍、项目介绍、简历讲解：用简历里的真实经历写 180～350 字口述稿，STAR 结构。\n' +
+    '- 算法题才输出思路和代码。\n' +
+    '- 禁止说「这不是题目」「没有题目」「无法作答」。\n' +
+    '- 不要编造简历里没有的经历。',
   'core-code':
-    '你是一个编程面试辅助工具。只输出题目的核心解题代码，遵循以下规则：\n' +
-    '- 不要输出任何思考过程、推理步骤、分析说明。直接输出最终代码\n' +
+    '你是一个编程面试辅助工具。如果当前是算法/代码题，只输出核心解题代码。\n' +
+    '如果当前是行为面、自我介绍或简历相关，不要说这不是题目，改为根据候选人简历写第一人称口述稿。\n' +
+    '- 不要输出任何思考过程、推理步骤、分析说明。\n' +
     '- 代码使用 Markdown 代码块包裹，在开头三反引号后必须标注语言（如 ```python、```java、```cpp）\n' +
     '- 代码格式整洁，正确缩进，每行只写一条语句，不要多条语句挤在一行\n' +
     '- 使用题目对应的函数签名，不要额外添加 main 函数或测试用例\n' +
@@ -170,18 +204,34 @@ const MODE_PROMPTS: Record<string, string> = {
     '- if/for/while、函数、类、输入处理、核心逻辑、输出逻辑都要有清晰层次；复杂语句必须拆行\n' +
     '- 可以省略注释和测试用例，可以合并连续 import 或简单同类变量声明，但不要牺牲可读性\n' +
     '- 输出格式保持干净：不要保留多余空行，所有代码行末尾不要有空格或 Tab，代码块末尾不要有多余换行\n' +
-    '- 上一条是对输出格式的要求，不要在业务代码里额外编写清理空格/删除换行的逻辑'
+    '- 上一条是对输出格式的要求，不要在业务代码里额外编写清理空格/删除换行的逻辑\n' +
+    '- 如果当前不是算法题而是行为面或简历讲解，不要说这不是题目，改为根据候选人简历写第一人称口述稿'
 }
 
 function buildResumeContextSection(): string {
-  if (!resumeData.enabled || !resumeData.structured) return ''
+  const hasResumeContent = Boolean(resumeData.rawText.trim() || resumeData.structured)
+  if (!resumeData.enabled && !hasResumeContent) return ''
 
   const p = resumeData.priority
   const s = resumeData.structured
+  const hasStructured = Boolean(
+    s &&
+      (s.techStack.length > 0 ||
+        s.workExperience ||
+        s.internshipExperience ||
+        s.projectExperience ||
+        s.education)
+  )
+
+  if (!hasStructured && !resumeData.rawText.trim()) return ''
 
   let section = '\n\n## 候选人背景信息\n\n'
-  section += '以下为候选人的背景资料，请根据题目实际需要选择性引用。\n'
-  section += '优先级排序：题目本身 > 候选人自身情况 >= 岗位JD > 公司业务。\n\n'
+  section += '写行为面或自我介绍稿时，必须优先使用这些真实经历，不要编造。\n\n'
+
+  if (!s || !hasStructured) {
+    section += `### 候选人简历原文\n\n${resumeData.rawText.trim().slice(0, 8000)}\n\n`
+    return section
+  }
 
   if (p.selfInfo > 0 && (s.techStack.length > 0 || s.workExperience || s.internshipExperience || s.projectExperience || s.education)) {
     section += `### 候选人简历（重要程度：${p.selfInfo}/100）\n\n`
@@ -213,33 +263,39 @@ function buildResumeContextSection(): string {
   return section
 }
 
+function getMaxOutputTokens() {
+  if (settings.responseMode === 'acm') return 4096
+  if (settings.responseMode === 'core-code') return 2500
+  return 1200
+}
+
 function getSystemPrompt(): string {
   const customPrompt = settings.customPrompt?.trim()
+  const resumeContext = buildResumeContextSection()
+  const languageHint = `\n代码题使用编程语言：${settings.codeLanguage}。`
 
   if (settings.responseMode === 'custom') {
-    return customPrompt || PROMPT_SYSTEM + `\n使用编程语言：${settings.codeLanguage} 解答。`
+    return (customPrompt || PROMPT_SYSTEM) + languageHint + resumeContext
   }
 
-  // Mode-specific prompt replaces the default PROMPT_SYSTEM for code modes
   if (settings.responseMode === 'core-code' || settings.responseMode === 'acm') {
-    return (
-      MODE_PROMPTS[settings.responseMode] +
-      `\n使用编程语言：${settings.codeLanguage} 解答。`
-    )
+    return MODE_PROMPTS[settings.responseMode] + languageHint + resumeContext
   }
-  return PROMPT_SYSTEM + `\n使用编程语言：${settings.codeLanguage} 解答。`
+
+  return (MODE_PROMPTS.interview || PROMPT_SYSTEM) + languageHint + resumeContext
 }
 
 // ─── Streaming functions ───────────────────────────────────────────
 
 export function getSolutionStream(messages: ModelMessage[], abortSignal?: AbortSignal) {
   const { baseURL, apiKey, model } = getSolvingProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const { textStream } = streamText({
     model: openai.chat(model),
     system: getSystemPrompt(),
     messages,
+    maxOutputTokens: getMaxOutputTokens(),
     abortSignal,
     onError: (err) => {
       throw err.error ?? err
@@ -254,7 +310,7 @@ export function getFollowUpStream(
   abortSignal?: AbortSignal
 ) {
   const { baseURL, apiKey, model } = getSolvingProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const updatedMessages: ModelMessage[] = [
     ...messages,
@@ -268,6 +324,7 @@ export function getFollowUpStream(
     model: openai.chat(model),
     system: getSystemPrompt(),
     messages: updatedMessages,
+    maxOutputTokens: getMaxOutputTokens(),
     abortSignal,
     onError: (err) => {
       throw err.error ?? err
@@ -294,7 +351,7 @@ export function getAlternativeSolutionStream(
   abortSignal?: AbortSignal
 ) {
   const { baseURL, apiKey, model } = getSolvingProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const updatedMessages: ModelMessage[] = [
     ...messages,
@@ -337,7 +394,7 @@ function getCodeIdeaSystemPrompt(): string {
 
 export function getCodeIdeaStream(messages: ModelMessage[], abortSignal?: AbortSignal) {
   const { baseURL, apiKey, model } = getSolvingProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const updatedMessages: ModelMessage[] = [
     ...messages,
@@ -369,7 +426,7 @@ const VOICE_SYSTEM_PROMPT = `你是一个专业的面试助手，正在帮助候
 
 ## 回答要求
 
-- 使用中文，口语化表达，便于语音朗读；
+- 使用中文，口语化表达，写成能直接说出口的稿子；
 - 根据问题复杂度动态调整回答长度：简单问题简明扼要，复杂问题详细展开；
 - 根据候选人的简历背景，给出针对性的回答建议；
 - 如果问题涉及候选人经历，优先引用其简历中的真实经历；
@@ -379,10 +436,7 @@ const VOICE_SYSTEM_PROMPT = `你是一个专业的面试助手，正在帮助候
 - 像真正的面试伙伴一样，给出可以直接说出口的回答。`
 
 export function getVoiceStream(messages: ModelMessage[], abortSignal?: AbortSignal) {
-  const openai = createOpenAI({
-    baseURL: settings.apiBaseURL,
-    apiKey: settings.apiKey
-  })
+  const openai = createChatClient(settings.apiBaseURL, settings.apiKey)
 
   const resumeContext = buildResumeContextSection()
   const wordLimit = settings.voiceWordLimit || 500
@@ -406,12 +460,13 @@ export function getVoiceStream(messages: ModelMessage[], abortSignal?: AbortSign
 
 export function getGeneralStream(messages: ModelMessage[], abortSignal?: AbortSignal) {
   const { baseURL, apiKey, model } = getSolvingProvider()
-  const openai = createOpenAI({ baseURL, apiKey })
+  const openai = createChatClient(baseURL, apiKey)
 
   const { textStream } = streamText({
     model: openai.chat(model),
     system: getSystemPrompt(),
     messages,
+    maxOutputTokens: getMaxOutputTokens(),
     abortSignal,
     onError: (err) => {
       throw err.error ?? err
@@ -432,7 +487,7 @@ async function testConnection(
   }
   const start = Date.now()
   try {
-    const openai = createOpenAI({ baseURL, apiKey })
+    const openai = createChatClient(baseURL, apiKey)
     const result = streamText({
       model: openai.chat(model),
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]
@@ -496,7 +551,7 @@ async function testVisionCapability(
     const mime = imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg') ? 'jpeg' : 'png'
     const dataUrl = `data:image/${mime};base64,${testImage}`
 
-    const openai = createOpenAI({ baseURL, apiKey })
+    const openai = createChatClient(baseURL, apiKey)
     const result = streamText({
       model: openai.chat(model),
       messages: [

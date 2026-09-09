@@ -8,7 +8,6 @@ import { useVoiceStore } from '@/lib/store/voice'
 import { useRecorderStore } from '@/lib/store/recorder'
 import { startAudioCapture, stopAudioCapture } from '@/lib/audio-capture'
 import { startDualCapture, stopDualCapture } from '@/lib/recorder-capture'
-import { speak as ttsSpeak, stop as ttsStop } from '@/lib/tts'
 
 import { AppHeader } from './AppHeader'
 import { AppContent } from './AppContent'
@@ -16,25 +15,32 @@ import { AppStatusBar } from './AppStatusBar'
 import { PrerequisitesChecker } from './PrerequisitesChecker'
 import { TranscriptionBar } from './TranscriptionBar'
 
-type ResponseMode = 'core-code' | 'acm' | 'custom'
+type ResponseMode = 'interview' | 'core-code' | 'acm' | 'custom'
 
 const responseModeNames: Record<ResponseMode, string> = {
+  interview: '面试稿模式',
   'core-code': '核心代码模式',
   acm: 'ACM 模式',
   custom: '自定义提示词模式'
 }
 
+function resolveAsrApiKey(dashscopeKey: string, chatKey: string) {
+  return dashscopeKey.trim() || chatKey.trim()
+}
+
 function getNextResponseMode(current: ResponseMode, hasCustomPrompt: boolean): ResponseMode {
-  const modes: ResponseMode[] = hasCustomPrompt ? ['core-code', 'acm', 'custom'] : ['core-code', 'acm']
+  const modes: ResponseMode[] = hasCustomPrompt
+    ? ['interview', 'core-code', 'acm', 'custom']
+    : ['interview', 'core-code', 'acm']
   const index = modes.indexOf(current)
   return modes[(index + 1) % modes.length]
 }
 
 export default function CoderPage() {
-  const { opacity, dashscopeApiKey, audioSource, systemAudioDeviceId, micDeviceId } =
+  const { opacity, apiKey, dashscopeApiKey, audioSource, systemAudioDeviceId, micDeviceId } =
     useSettingsStore()
   const { syncAppState } = useAppStore()
-  const { isTranscribing, setIsTranscribing, setTranscriptionText, clearText } =
+  const { isTranscribing, setIsTranscribing, setStatus, setTranscriptionText, clearText } =
     useTranscriptionStore()
   const { setErrorMessage } = useSolutionStore()
   const { setVoiceMode } = useVoiceStore()
@@ -90,23 +96,31 @@ export default function CoderPage() {
         await window.api.stopTranscription()
         setIsTranscribing(false)
       } else {
-        if (!dashscopeApiKey) {
-          setErrorMessage('请先在设置中配置百炼平台 API Key')
+        const asrKey = resolveAsrApiKey(dashscopeApiKey, apiKey)
+        if (!asrKey) {
+          setErrorMessage('请先在设置中配置百炼 API Key（AI 设置或语音转录均可）')
           return
         }
         try {
+          setIsTranscribing(true)
+          setStatus('connecting')
           await startAudioCapture(
             audioSource === 'system'
               ? (systemAudioDeviceId || undefined)
               : (micDeviceId || undefined)
           )
-          await window.api.startTranscription(dashscopeApiKey)
-          setIsTranscribing(true)
+          await window.api.startTranscription(asrKey)
+          setStatus('listening')
           setErrorMessage(null)
         } catch (err) {
           console.error('Failed to start transcription:', err)
           stopAudioCapture()
-          setErrorMessage('启动语音转录失败，请检查音频设备权限。如果使用系统音频，请确认已启用"立体声混音"设备（详见 README）。')
+          setIsTranscribing(false)
+          const message = err instanceof Error ? err.message : ''
+          setErrorMessage(
+            message ||
+              '启动语音转录失败。请检查立体声混音是否已启用，以及百炼是否开通了 fun-asr-realtime。'
+          )
         }
       }
     }
@@ -115,11 +129,14 @@ export default function CoderPage() {
     return () => {
       window.api.removeToggleTranscriptionListener()
     }
-  }, [isTranscribing, dashscopeApiKey, audioSource, systemAudioDeviceId, micDeviceId, setIsTranscribing, setErrorMessage])
+  }, [isTranscribing, apiKey, dashscopeApiKey, audioSource, systemAudioDeviceId, micDeviceId, setIsTranscribing, setStatus, setErrorMessage])
 
   useEffect(() => {
     window.api.onTranscriptionText((data) => {
       setTranscriptionText(data.text)
+    })
+    window.api.onTranscriptionStatus((nextStatus) => {
+      setStatus(nextStatus)
     })
     window.api.onTranscriptionError((message) => {
       setErrorMessage(message)
@@ -135,57 +152,39 @@ export default function CoderPage() {
 
     return () => {
       window.api.removeTranscriptionTextListener()
+      window.api.removeTranscriptionStatusListener()
       window.api.removeTranscriptionErrorListener()
       window.api.removeTranscriptionStoppedListener()
       window.api.removeTranscriptionClearedListener()
     }
-  }, [setTranscriptionText, setErrorMessage, setIsTranscribing, clearText])
-
-  // Trigger TTS on solution completion — only speak the latest AI response
-  useEffect(() => {
-    const handleTtsSpeak = (text: string) => {
-      const { ttsEnabled: enabled } = useSettingsStore.getState()
-      const { isVoiceMode: voiceMode } = useVoiceStore.getState()
-      if ((enabled || voiceMode) && text.trim()) {
-        ttsSpeak(text.trim())
-      }
-    }
-
-    window.api.onTtsSpeakText(handleTtsSpeak)
-    return () => {
-      window.api.removeTtsSpeakTextListener()
-    }
-  }, [])
+  }, [setTranscriptionText, setStatus, setErrorMessage, setIsTranscribing, clearText])
 
   // Voice conversation mode toggle
   useEffect(() => {
     const handleToggleVoice = async () => {
       const { isVoiceMode: voiceMode } = useVoiceStore.getState()
       if (voiceMode) {
-        // Stop voice mode: stop audio, stop transcription, send text to AI
         stopAudioCapture()
         await window.api.stopTranscription()
         setVoiceMode(false)
         useTranscriptionStore.getState().setIsTranscribing(false)
-        const text = await window.api.getTranscriptionText()
-        if (text.trim()) {
-          useTranscriptionStore.getState().clearText()
-          await window.api.sendVoiceQuery(text.trim())
-        }
+        useTranscriptionStore.getState().clearText()
+        await window.api.triggerTextAnswer()
       } else {
-        // Start voice mode: use microphone for voice conversation.
-        // System audio capture shows a screen-share prompt and is meant for transcribing
-        // interview audio, not for the user's voice question.
-        const { dashscopeApiKey: apiKey, micDeviceId } = useSettingsStore.getState()
-        if (!apiKey) {
-          setErrorMessage('请先在设置中配置百炼平台 API Key')
+        const { dashscopeApiKey: voiceKey, apiKey: chatKey, micDeviceId } =
+          useSettingsStore.getState()
+        const asrKey = resolveAsrApiKey(voiceKey, chatKey)
+        if (!asrKey) {
+          setErrorMessage('请先在设置中配置百炼 API Key（AI 设置或语音转录均可）')
           return
         }
         try {
-          await startAudioCapture(micDeviceId || undefined)
-          await window.api.startTranscription(apiKey)
-          setVoiceMode(true)
           useTranscriptionStore.getState().setIsTranscribing(true)
+          useTranscriptionStore.getState().setStatus('connecting')
+          await startAudioCapture(micDeviceId || undefined)
+          await window.api.startTranscription(asrKey)
+          useTranscriptionStore.getState().setStatus('listening')
+          setVoiceMode(true)
           setErrorMessage(null)
         } catch (err) {
           console.error('Failed to start voice conversation:', err)
@@ -206,19 +205,20 @@ export default function CoderPage() {
     const handleStartRecording = async () => {
       const { isRecording: recording } = useRecorderStore.getState()
       if (recording) return // Already recording
-      const { dashscopeApiKey: apiKey, recordEnabled: enabled, systemAudioDeviceId, micDeviceId } =
+      const { dashscopeApiKey: voiceKey, apiKey: chatKey, recordEnabled: enabled, systemAudioDeviceId, micDeviceId } =
         useSettingsStore.getState()
       if (!enabled) {
         setErrorMessage('请先在设置中开启"启用面试录音"')
         return
       }
-      if (!apiKey) {
-        setErrorMessage('请先在设置中配置百炼平台 API Key')
+      const asrKey = resolveAsrApiKey(voiceKey, chatKey)
+      if (!asrKey) {
+        setErrorMessage('请先在设置中配置百炼 API Key（AI 设置或语音转录均可）')
         return
       }
       try {
         await startDualCapture(systemAudioDeviceId || undefined, micDeviceId || undefined)
-        await window.api.startRecording(apiKey, systemAudioDeviceId, micDeviceId)
+        await window.api.startRecording(asrKey, systemAudioDeviceId, micDeviceId)
         useRecorderStore.getState().setIsRecording(true)
       } catch (err) {
         console.error('Failed to start recording:', err)
@@ -268,22 +268,6 @@ export default function CoderPage() {
     }
   }, [setErrorMessage])
 
-  // Toggle TTS on/off from shortcut
-  useEffect(() => {
-    const handleToggleTTS = () => {
-      const { ttsEnabled: enabled } = useSettingsStore.getState()
-      useSettingsStore.getState().updateSetting('ttsEnabled', !enabled)
-      if (enabled) {
-        ttsStop()
-      }
-    }
-
-    window.api.onToggleTTS(handleToggleTTS)
-    return () => {
-      window.api.removeToggleTTSListener()
-    }
-  }, [])
-
   useEffect(() => {
     return () => {
       if (useTranscriptionStore.getState().isTranscribing) {
@@ -298,7 +282,6 @@ export default function CoderPage() {
         stopDualCapture()
         window.api.stopRecording()
       }
-      ttsStop()
     }
   }, [])
 

@@ -1,7 +1,8 @@
 import { join } from 'node:path'
-import { shell, app, BrowserWindow } from 'electron'
+import { shell, BrowserWindow } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { createToolbarWindow } from './toolbar-window'
 
 export function applyContentProtection(window: BrowserWindow, forceReset = false): void {
   if (!window || window.isDestroyed()) return
@@ -18,9 +19,12 @@ export function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
+    title: '',
     frame: false,
     transparent: true,
     hasShadow: false,
+    // Native resize toggling breaks transparency on Windows; renderer handles own resizing.
+    resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hiddenInMissionControl: true,
@@ -29,20 +33,38 @@ export function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Soft-hide parks the window off-screen, which makes Windows report the
+      // window as occluded; with throttling on, the renderer freezes until the
+      // window is focused again (queued IPC flushes on click, toolbar hover
+      // dwell timers never fire).
+      backgroundThrottling: false
     }
   })
 
   // Store reference to mainWindow globally
   global.mainWindow = mainWindow
+  // The toolbar follows the main window's position and visibility on its own
+  createToolbarWindow(mainWindow)
 
   mainWindow.setMenuBarVisibility(false)
+
+  // Keep the native window title empty. Chromium's window picker (Edge/Chrome
+  // "share a window") enumerates windows with WebRTC's kIgnoreUntitled flag and
+  // drops the ones whose title is empty, so an untitled window never shows up in
+  // the list. setContentProtection only blanks the pixels; it does not hide the
+  // window from enumeration. The window is frameless, so no title is ever drawn.
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+    mainWindow.setTitle('')
+  })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
     mainWindow.setAlwaysOnTop(true, 'screen-saver', 1)
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    app.dock?.show()
+    // Dock visibility is handled at startup (index.ts) and via renderer sync
+    // (settings.ts); the window's own show event must not force it back on.
     applyContentProtection(mainWindow)
 
     // Reclaim top position when other apps steal it

@@ -14,11 +14,13 @@ import {
 } from '@/components/ui/command'
 
 const defaultModels = [
+  { value: 'deepseek/deepseek-v4-flash-vision-exp', label: 'deepseek/deepseek-v4-flash-vision-exp' },
   { value: 'Qwen/Qwen3-VL-32B-Instruct', label: 'Qwen/Qwen3-VL-32B-Instruct' },
   { value: 'Qwen/Qwen3-VL-8B-Thinking', label: 'Qwen/Qwen3-VL-8B-Thinking' },
-  { value: 'zai-org/GLM-4.6V', label: 'zai-org/GLM-4.6V' },
-  { value: 'gpt-5-mini', label: 'gpt-5-mini' },
-  { value: 'gpt-5.4', label: 'gpt-5.4' }
+  { value: 'zai-org/GLM-4.5V', label: 'zai-org/GLM-4.5V' },
+  { value: 'gpt-5.6-luna', label: 'gpt-5.6-luna' },
+  { value: 'gpt-5.6-terra', label: 'gpt-5.6-terra' },
+  { value: 'gpt-5.6-sol', label: 'gpt-5.6-sol' }
 ]
 
 export function SelectModel({
@@ -82,11 +84,13 @@ export function SelectModel({
           disabled={disabled}
           className={cn('w-60 justify-between', className)}
         >
-          {value ? (models.find((m) => m.value === value)?.label ?? value) : '选择模型...'}
+          <span className="truncate">
+            {value ? (models.find((m) => m.value === value)?.label ?? value) : '选择模型...'}
+          </span>
           <ChevronsUpDown className="opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-60 p-0">
+      <PopoverContent className="min-w-60 max-w-[26rem] p-0">
         <Command>
           <CommandInput
             placeholder="输入以搜索或创建..."
@@ -106,9 +110,9 @@ export function SelectModel({
                       setSearchValue('')
                       setOpen(false)
                     }}
-                    className="flex-1"
+                    className="flex-1 overflow-hidden"
                   >
-                    {m.label}
+                    <span className="truncate">{m.label}</span>
                     <Check
                       className={cn('ml-auto', value === m.value ? 'opacity-100' : 'opacity-0')}
                     />

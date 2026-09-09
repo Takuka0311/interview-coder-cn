@@ -34,6 +34,8 @@ const shortcutHintLabels = {
   resetAnswerFontSize: '字号默认',
   decreaseAnswerFontSize: '字号缩小',
   increaseAnswerFontSize: '字号放大',
+  increaseOpacity: '更清晰',
+  decreaseOpacity: '更透明',
   moveMainWindowUp: '上移窗口',
   moveMainWindowDown: '下移窗口',
   moveMainWindowLeft: '左移窗口',
@@ -141,7 +143,7 @@ export function AppStatusBar() {
     ? statusBarShortcutHints
     : defaultStatusBarShortcutHints
   const visibleShortcutHints = configuredStatusBarShortcutHints.filter(
-    (action) => action !== 'toggleTTS' && shortcuts[action]
+    (action) => Boolean(shortcuts[action])
   )
 
   return (

@@ -33,7 +33,9 @@ import './transcription'
 import './recorder'
 import './resume'
 import { createWindow } from './main-window'
+import { applyDockVisibility } from './settings'
 import { initAutoUpdater } from './auto-updater'
+import './window-resize'
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -71,6 +73,10 @@ if (gotSingleInstanceLock) {
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
     })
+
+    // Hide the dock first so the icon does not flash on, then the renderer
+    // syncs the user's hideDockIcon setting.
+    applyDockVisibility(true)
 
     createWindow()
 

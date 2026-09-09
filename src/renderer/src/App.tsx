@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
-import { HashRouter, Routes, Route } from 'react-router'
+import { HashRouter, Routes, Route, useLocation } from 'react-router'
 import { Toaster } from 'sonner'
 import CoderPage from '@/coder'
 import SettingsPage from '@/settings'
 import HelpPage from '@/help'
+import { OverlayToolbar } from '@/coder/OverlayToolbar'
 import { useSettingsStore } from '@/lib/store/settings'
 import { useShortcutsStore } from '@/lib/store/shortcuts'
 import { useResumeStore } from '@/lib/store/resume'
 import { getCloneableFields } from '@/lib/utils'
+import { WindowResizeHandles } from '@/components/WindowResizeHandles'
 
 export default function App() {
   const [initialized, setInitialized] = useState(false)
@@ -51,14 +53,39 @@ export default function App() {
   return (
     <>
       <HashRouter>
+        <ToolbarVisibilityController />
+        <WindowResizeController />
         <Routes>
           <Route index element={<CoderPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="help" element={<HelpPage />} />
+          <Route path="toolbar" element={<OverlayToolbar />} />
         </Routes>
       </HashRouter>
 
       <Toaster />
     </>
   )
+}
+
+/** The toolbar window renders its own handles; this covers the main window's routes */
+function WindowResizeController() {
+  const location = useLocation()
+  const resizable = useSettingsStore((state) => state.resizable)
+
+  if (location.pathname === '/toolbar') return null
+  return <WindowResizeHandles enabled={resizable} />
+}
+
+function ToolbarVisibilityController() {
+  const location = useLocation()
+  const showOverlayToolbar = useSettingsStore((state) => state.showOverlayToolbar)
+
+  useEffect(() => {
+    // The toolbar window renders this app too, but must not drive its own visibility
+    if (location.pathname === '/toolbar') return
+    void window.api.setToolbarVisible(location.pathname === '/' && showOverlayToolbar)
+  }, [location.pathname, showOverlayToolbar])
+
+  return null
 }

@@ -14,6 +14,7 @@ import { platformAlt } from '@/lib/utils/env'
 import { HelpSection } from './components'
 import { Shortcuts } from './Shortcuts'
 import { FAQ } from './FAQ'
+import { OverlayToolbarHelp } from './OverlayToolbar'
 
 export default function HelpPage() {
   return (
@@ -82,6 +83,8 @@ export default function HelpPage() {
 
         {/* Keyboard Shortcuts */}
         <Shortcuts />
+
+        <OverlayToolbarHelp />
 
         {/* FAQ */}
         <FAQ />

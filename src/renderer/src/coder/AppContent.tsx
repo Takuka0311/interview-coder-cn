@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Images } from 'lucide-react'
 import { useShortcutsStore } from '@/lib/store/shortcuts'
 import { useSolutionStore } from '@/lib/store/solution'
 import { useVoiceStore } from '@/lib/store/voice'
 import {
   AI_ANSWER_FONT_SIZE_DEFAULT,
   clampAiAnswerFontSize,
-  useSettingsStore
+  useSettingsStore,
+  type ScreenshotDisplay
 } from '@/lib/store/settings'
 import MarkdownRenderer from '@/components/MarkdownRenderer'
 import ShortcutRenderer from '@/components/ShortcutRenderer'
@@ -61,8 +63,9 @@ export function AppContent() {
     clearSolution
   } = useSolutionStore()
 
-  const { aiAnswerFontSize } = useSettingsStore()
+  const { aiAnswerFontSize, screenshotDisplay } = useSettingsStore()
   const [recentScreenshots, setRecentScreenshots] = useState<string[]>([])
+  const [screenshotTotal, setScreenshotTotal] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when new content arrives
@@ -83,14 +86,16 @@ export function AppContent() {
     })
 
     // Listen for screenshots-updated events (gallery)
-    window.api.onScreenshotsUpdated((screenshots: string[]) => {
+    window.api.onScreenshotsUpdated((screenshots: string[], total: number) => {
       setRecentScreenshots(screenshots)
+      setScreenshotTotal(total)
     })
 
     // New session clear (pictures + answers)
     window.api.onSolutionClear(() => {
       clearSolution()
       setRecentScreenshots([])
+      setScreenshotTotal(0)
       setScreenshotData(null)
       setErrorMessage(null)
       // Scroll to top for new conversation
@@ -242,36 +247,82 @@ export function AppContent() {
         </div>
       )}
 
-      {/* Screenshot Gallery */}
-      {recentScreenshots.length > 0 ? (
-        <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
-          {recentScreenshots.map((data, index) => (
-            <img
-              key={index}
-              src={`data:image/png;base64,${data}`}
-              alt={`Screenshot ${index + 1}`}
-              className="w-40 h-auto flex-shrink-0 border border-gray-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow"
-              title={`第 ${index + 1} 张截图`}
-            />
-          ))}
-        </div>
-      ) : screenshotData ? (
-        <div className="mb-4">
-          <img
-            src={`data:image/png;base64,${screenshotData}`}
-            alt="Screenshot"
-            className="w-40 h-auto border border-gray-600 rounded-lg shadow-lg"
-          />
-        </div>
-      ) : (
-        <ShortcutTip />
-      )}
+      <Screenshots
+        display={screenshotDisplay}
+        screenshots={recentScreenshots}
+        total={screenshotTotal}
+        fallback={screenshotData}
+        empty={<ShortcutTip />}
+      />
 
       {/* Solution Display */}
       {solutionChunks.length > 0 && <ContentScrollShortcutHint />}
       <MarkdownRenderer fontSize={aiAnswerFontSize}>{solutionChunks.join('')}</MarkdownRenderer>
     </div>
   )
+}
+
+function Screenshots({
+  display,
+  screenshots,
+  total,
+  fallback,
+  empty
+}: {
+  display: ScreenshotDisplay
+  screenshots: string[]
+  total: number
+  fallback: string | null
+  empty: ReactNode
+}) {
+  const count = Math.max(total, screenshots.length)
+  const hasScreenshots = count > 0 || Boolean(fallback)
+
+  if (!hasScreenshots) return empty
+
+  switch (display) {
+    case 'none':
+      return null
+    case 'count':
+      return (
+        <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-gray-600 bg-gray-800/80 px-3 py-2 text-sm text-gray-100">
+          <Images className="h-4 w-4" />
+          <span>{count} 张截图</span>
+        </div>
+      )
+    case 'gallery':
+      if (screenshots.length > 0) {
+        return (
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
+            {screenshots.map((data, index) => (
+              <img
+                key={index}
+                src={`data:image/png;base64,${data}`}
+                alt={`Screenshot ${index + 1}`}
+                className="w-40 h-auto flex-shrink-0 border border-gray-600 rounded-lg shadow-lg hover:shadow-xl transition-shadow"
+                title={`第 ${index + 1} 张截图`}
+              />
+            ))}
+          </div>
+        )
+      }
+      if (fallback) {
+        return (
+          <div className="mb-4">
+            <img
+              src={`data:image/png;base64,${fallback}`}
+              alt="Screenshot"
+              className="w-40 h-auto border border-gray-600 rounded-lg shadow-lg"
+            />
+          </div>
+        )
+      }
+      return empty
+    default: {
+      const _exhaustive: never = display
+      return _exhaustive
+    }
+  }
 }
 
 function ContentScrollShortcutHint() {

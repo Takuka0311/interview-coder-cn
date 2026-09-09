@@ -192,6 +192,16 @@ export function CustomShortcuts() {
             description="恢复到默认答案字号"
             shortcut="resetAnswerFontSize"
           />
+          <Shortcut
+            label="提高不透明度"
+            description="让窗口更清晰，默认 Alt+Shift+Up"
+            shortcut="increaseOpacity"
+          />
+          <Shortcut
+            label="提高透明度"
+            description="让窗口更透明，默认 Alt+Shift+Down"
+            shortcut="decreaseOpacity"
+          />
         </div>
 
         {/* Window Movement */}

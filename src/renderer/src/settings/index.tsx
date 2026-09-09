@@ -23,11 +23,19 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
+import {
   AI_ANSWER_FONT_SIZE_DEFAULT,
   AI_ANSWER_FONT_SIZE_MAX,
   AI_ANSWER_FONT_SIZE_MIN,
   defaultStatusBarShortcutHints,
   useSettingsStore,
+  type ScreenshotDisplay,
   type StatusBarShortcutHintAction
 } from '@/lib/store/settings'
 import { useShortcutsStore } from '@/lib/store/shortcuts'
@@ -61,6 +69,8 @@ const statusBarShortcutHintOptions: Array<{
   { action: 'resetAnswerFontSize', label: '字号默认', description: '恢复 AI 回答默认字号' },
   { action: 'decreaseAnswerFontSize', label: '字号缩小', description: '缩小 AI 回答字号' },
   { action: 'increaseAnswerFontSize', label: '字号放大', description: '放大 AI 回答字号' },
+  { action: 'increaseOpacity', label: '提高不透明度', description: '让窗口更清晰' },
+  { action: 'decreaseOpacity', label: '提高透明度', description: '让窗口更透明' },
   { action: 'moveMainWindowUp', label: '上移窗口', description: '向上移动主窗口' },
   { action: 'moveMainWindowDown', label: '下移窗口', description: '向下移动主窗口' },
   { action: 'moveMainWindowLeft', label: '左移窗口', description: '向左移动主窗口' },
@@ -96,7 +106,18 @@ export default function SettingsPage() {
     responseMode,
     aiAnswerFontSize,
     statusBarShortcutHints,
-    updateSetting
+    scenes,
+    activeSceneId,
+    screenshotDisplay,
+    resizable,
+    showOverlayToolbar,
+    toolbarHoverDelay,
+    hideDockIcon,
+    updateSetting,
+    setActiveScene,
+    updateScenePrompt,
+    addScene,
+    removeScene
   } = useSettingsStore()
   const { shortcuts } = useShortcutsStore()
   const { isRecording, systemSentenceCount, micSentenceCount } = useRecorderStore()
@@ -1166,13 +1187,54 @@ export default function SettingsPage() {
             </div>
 
             {responseMode === 'custom' ? (
-              <div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">
+                    题目场景
+                    <span className="ml-2 text-xs font-light">
+                      仅自定义模式下生效；面试稿 / 核心代码 / ACM 仍用各自提示词
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Select value={activeSceneId} onValueChange={setActiveScene}>
+                      <SelectTrigger className="w-40 bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scenes.map((scene) => (
+                          <SelectItem key={scene.id} value={scene.id}>
+                            {scene.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const name = window.prompt('场景名称')
+                        if (name?.trim()) addScene(name.trim())
+                      }}
+                    >
+                      新增
+                    </Button>
+                    {scenes.find((scene) => scene.id === activeSceneId && !scene.isPreset) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeScene(activeSceneId)}
+                      >
+                        删除
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <Textarea
-                  value={customPrompt}
-                  onChange={(e) => updateSetting('customPrompt', e.target.value)}
+                  value={scenes.find((scene) => scene.id === activeSceneId)?.prompt ?? customPrompt}
+                  onChange={(e) => updateScenePrompt(activeSceneId, e.target.value)}
                   placeholder="请输入自定义的提示词内容, 示例: 你是一个编程助手, 请根据「截图」和「语音转录内容」给出相关回答。"
                   className="w-full min-h-24 bg-white"
-                  rows={4}
+                  rows={8}
                 />
               </div>
             ) : (
@@ -1396,10 +1458,86 @@ export default function SettingsPage() {
         <div className="bg-gray-300/80 rounded-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center">
             <Palette className="h-5 w-5 mr-2" />
-            外观设置
+            界面设置
           </h2>
 
           <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">
+                悬浮工具条
+                <span className="ml-2 text-xs font-light">主窗口上方的点击穿透工具条</span>
+              </label>
+              <Switch
+                checked={showOverlayToolbar}
+                onCheckedChange={(checked) => updateSetting('showOverlayToolbar', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">
+                悬停触发
+                <span className="ml-2 text-xs font-light">鼠标停在按钮上一段时间即触发</span>
+              </label>
+              <Select
+                value={String(toolbarHoverDelay)}
+                onValueChange={(value) => updateSetting('toolbarHoverDelay', Number(value))}
+              >
+                <SelectTrigger className="w-40 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">关闭</SelectItem>
+                  <SelectItem value="500">0.5 秒</SelectItem>
+                  <SelectItem value="1000">1 秒</SelectItem>
+                  <SelectItem value="2000">2 秒</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">
+                窗口缩放
+                <span className="ml-2 text-xs font-light">拖动窗口边缘调整大小</span>
+              </label>
+              <Switch
+                checked={resizable}
+                onCheckedChange={(checked) => updateSetting('resizable', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">
+                截图展示
+                <span className="ml-2 text-xs font-light">主界面如何显示已截图片</span>
+              </label>
+              <Select
+                value={screenshotDisplay}
+                onValueChange={(value) =>
+                  updateSetting('screenshotDisplay', value as ScreenshotDisplay)
+                }
+              >
+                <SelectTrigger className="w-40 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gallery">缩略图</SelectItem>
+                  <SelectItem value="count">只显示张数</SelectItem>
+                  <SelectItem value="none">不显示</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">
+                隐藏 macOS Dock 图标
+                <span className="ml-2 text-xs font-light">仅 macOS 生效</span>
+              </label>
+              <Switch
+                checked={hideDockIcon}
+                onCheckedChange={(checked) => updateSetting('hideDockIcon', checked)}
+              />
+            </div>
+
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">
                 窗口透明度

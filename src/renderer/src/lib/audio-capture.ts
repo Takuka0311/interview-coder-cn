@@ -42,7 +42,7 @@ function createPCMProcessor(source: MediaStream): void {
     const inputRate = audioContext?.sampleRate || TARGET_SAMPLE_RATE
     const downsampled = downsample(e.inputBuffer.getChannelData(0), inputRate)
     const int16 = floatTo16BitPCM(downsampled)
-    window.api.sendTranscriptionAudioChunk(int16.buffer.slice(0))
+    window.api.sendTranscriptionAudioChunk(int16.buffer.slice(0) as ArrayBuffer)
   }
 
   // ScriptProcessor 必须接到 destination 才会回调，但增益必须为 0。

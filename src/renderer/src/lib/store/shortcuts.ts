@@ -113,6 +113,16 @@ const defaultShortcuts: Record<string, Omit<Shortcut, 'defaultKey'>> = {
     key: 'CommandOrControl+=',
     category: 'Appearance'
   },
+  increaseOpacity: {
+    action: 'increaseOpacity',
+    key: `${platformAlt}+Shift+Up`,
+    category: 'Appearance'
+  },
+  decreaseOpacity: {
+    action: 'decreaseOpacity',
+    key: `${platformAlt}+Shift+Down`,
+    category: 'Appearance'
+  },
   moveMainWindowUp: {
     action: 'moveMainWindowUp',
     key: 'CommandOrControl+Up',
@@ -188,7 +198,7 @@ export const useShortcutsStore = create<ShortcutsStore>()(
     }),
     {
       name: 'interview-coder-shortcuts',
-      version: 11,
+      version: 12,
       migrate: (state: unknown, version: number) => {
         if (!isPersistedShortcutsState(state) || !state.shortcuts) return state as ShortcutsStore
         // Merge in any new default shortcuts that are missing

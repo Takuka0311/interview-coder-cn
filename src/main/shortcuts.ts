@@ -1,7 +1,13 @@
 import { globalShortcut, ipcMain, screen } from 'electron'
-import type { BrowserWindow, Rectangle } from 'electron'
+import type { BrowserWindow } from 'electron'
 import type { ModelMessage } from 'ai'
 import { applyContentProtection } from './main-window'
+import {
+  showToolbar,
+  hideToolbar,
+  setToolbarWanted,
+  reassertToolbarTopMost
+} from './toolbar-window'
 import { takeScreenshot } from './take-screenshot'
 import { saveScreenshotToDisk } from './save-screenshot'
 import {
@@ -90,7 +96,11 @@ let currentStreamContext: StreamContext | null = null
 // Conversation history tracking
 let conversationMessages: ModelMessage[] = []
 let recentScreenshots: string[] = [] // 最近截图，水平预览 (限5张)
+/** Every screenshot in the current conversation, including the ones dropped from the preview */
+let screenshotCount = 0
 let hasAppendSeparator = false
+/** Opacity delta per shortcut press, matching the settings slider step */
+const OPACITY_STEP = 0.05
 
 const FRONT_REASSERT_DURATION = 8000
 const FRONT_REASSERT_INTERVAL = 100
@@ -99,7 +109,7 @@ const BACKGROUND_GUARD_INTERVAL = 2000
 let frontReassertTimer: NodeJS.Timeout | null = null
 let backgroundGuardTimer: NodeJS.Timeout | null = null
 let isWindowSoftHidden = false
-let softHiddenBounds: Rectangle | null = null
+let softHiddenPosition: [number, number] | null = null
 
 /**
  * Reassert always-on-top. `aggressive` also calls moveTop() which
@@ -110,6 +120,10 @@ function applyTopMost(win: BrowserWindow, aggressive = true) {
   if (!win || win.isDestroyed()) return
   win.setAlwaysOnTop(true, 'screen-saver', FRONT_RELATIVE_LEVEL)
   if (aggressive) win.moveTop()
+
+  if (state.ignoreMouse) {
+    reassertToolbarTopMost(FRONT_RELATIVE_LEVEL + 1, aggressive)
+  }
 }
 
 /**
@@ -143,18 +157,12 @@ function stopFrontReassert() {
   }
 }
 
-function getOffscreenBounds(window: BrowserWindow): Rectangle {
+function getOffscreenPosition(): [number, number] {
   const displays = screen.getAllDisplays()
   const maxRight = Math.max(...displays.map((display) => display.bounds.x + display.bounds.width))
   const topMost = Math.min(...displays.map((display) => display.bounds.y))
-  const [width, height] = window.getSize()
 
-  return {
-    x: maxRight + 2000,
-    y: topMost,
-    width,
-    height
-  }
+  return [maxRight + 2000, topMost]
 }
 
 function softHideWindow(window: BrowserWindow) {
@@ -162,24 +170,26 @@ function softHideWindow(window: BrowserWindow) {
 
   stopFrontReassert()
   stopBackgroundGuard()
-  softHiddenBounds = window.getBounds()
+  softHiddenPosition = window.getPosition() as [number, number]
   isWindowSoftHidden = true
 
   window.setOpacity(0)
   window.setIgnoreMouseEvents(true)
-  window.setBounds(getOffscreenBounds(window))
+  window.setPosition(...getOffscreenPosition())
+  hideToolbar()
 }
 
 function restoreSoftHiddenWindow(window: BrowserWindow) {
-  if (!isWindowSoftHidden || !softHiddenBounds || window.isDestroyed()) return
+  if (!isWindowSoftHidden || !softHiddenPosition || window.isDestroyed()) return
 
   applyContentProtection(window, true)
-  window.setBounds(softHiddenBounds)
+  window.setPosition(...softHiddenPosition)
   window.setIgnoreMouseEvents(state.ignoreMouse)
   window.setOpacity(1)
 
   isWindowSoftHidden = false
-  softHiddenBounds = null
+  softHiddenPosition = null
+  showToolbar()
   keepWindowInFront(window)
 }
 
@@ -191,7 +201,14 @@ function showMainWindow(window: BrowserWindow) {
   }
 
   applyContentProtection(window, process.platform === 'win32')
+  showToolbar()
   keepWindowInFront(window)
+}
+
+function adjustOpacity(delta: number) {
+  const mainWindow = global.mainWindow
+  if (!mainWindow || mainWindow.isDestroyed() || !state.inCoderPage) return
+  mainWindow.webContents.send('adjust-opacity', delta)
 }
 
 function keepWindowInFront(window: BrowserWindow) {
@@ -444,6 +461,7 @@ const callbacks: Record<string, () => void> = {
       }
       currentStreamContext = streamContext
       recentScreenshots = [screenshotData]
+      screenshotCount = 1
       hasAppendSeparator = false
       mainWindow.webContents.send('solution-clear')
       // Show transcribed voice text in chat display
@@ -453,7 +471,7 @@ const callbacks: Record<string, () => void> = {
           `> **🎤 面试官提问：** ${transcriptionText}\n\n`
         )
       }
-      mainWindow.webContents.send('screenshots-updated', recentScreenshots)
+      mainWindow.webContents.send('screenshots-updated', recentScreenshots, screenshotCount)
       mainWindow.webContents.send('screenshot-taken', screenshotData)
       mainWindow.webContents.send('solution-chunk', '**🤖 AI：**\n\n')
       mainWindow.webContents.send('ai-loading-start')
@@ -588,8 +606,9 @@ const callbacks: Record<string, () => void> = {
 
       recentScreenshots.push(screenshotData)
       recentScreenshots = recentScreenshots.slice(-5) // 限5张
+      screenshotCount += 1
       mainWindow.webContents.send('screenshot-taken', screenshotData)
-      mainWindow.webContents.send('screenshots-updated', recentScreenshots)
+      mainWindow.webContents.send('screenshots-updated', recentScreenshots, screenshotCount)
       if (!hasAppendSeparator) {
         mainWindow.webContents.send('solution-chunk', '\n\n---\n\n')
         hasAppendSeparator = true
@@ -706,6 +725,7 @@ const callbacks: Record<string, () => void> = {
     if (!mainWindow || mainWindow.isDestroyed()) return
     state.ignoreMouse = !state.ignoreMouse
     mainWindow.setIgnoreMouseEvents(state.ignoreMouse)
+    showToolbar()
     mainWindow.webContents.send('sync-app-state', state)
   },
   pageUp: () => {
@@ -748,6 +768,14 @@ const callbacks: Record<string, () => void> = {
     const mainWindow = global.mainWindow
     if (!mainWindow || mainWindow.isDestroyed() || !state.inCoderPage) return
     mainWindow.webContents.send('reset-answer-font-size')
+  },
+
+  increaseOpacity: () => {
+    adjustOpacity(OPACITY_STEP)
+  },
+
+  decreaseOpacity: () => {
+    adjustOpacity(-OPACITY_STEP)
   },
 
   moveMainWindowUp: () => {
@@ -889,6 +917,34 @@ ipcMain.handle('updateShortcuts', (_event, _shortcuts: { action: string; key: st
       registerShortcut(shortcut.action, shortcut.key)
     }
   })
+})
+
+const clickableActions = new Set([
+  'takeScreenshot',
+  'appendScreenshot',
+  'stopSolutionStream',
+  'ignoreOrEnableMouse',
+  'increaseOpacity',
+  'decreaseOpacity',
+  'pageUp',
+  'pageDown',
+  'moveMainWindowUp',
+  'moveMainWindowDown',
+  'moveMainWindowLeft',
+  'moveMainWindowRight',
+  'toggleTranscription',
+  'clearTranscription',
+  'voiceQuery'
+])
+
+ipcMain.handle('triggerAction', (_event, action: string) => {
+  if (!clickableActions.has(action)) return false
+  callbacks[action]?.()
+  return true
+})
+
+ipcMain.handle('setToolbarVisible', (_event, visible: boolean) => {
+  setToolbarWanted(visible)
 })
 
 ipcMain.handle('trigger-take-screenshot', () => {

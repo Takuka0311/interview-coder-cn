@@ -6,6 +6,7 @@ import type { ResumeData, ResumeStructured } from '../main/resume'
 
 // Custom APIs for renderer
 const api = {
+  getAppVersion: () => ipcRenderer.invoke('getAppVersion') as Promise<string>,
   // Get app settings
   getAppSettings: () => ipcRenderer.invoke('getAppSettings'),
   // Update app settings
@@ -95,10 +96,10 @@ const api = {
     ipcRenderer.removeAllListeners('scroll-page-up')
   },
 
-  // Listen for screenshots-updated (gallery)
-  onScreenshotsUpdated: (callback: (screenshots: string[]) => void) => {
-    ipcRenderer.on('screenshots-updated', (_event, screenshots) => {
-      callback(screenshots)
+  // Listen for screenshots-updated (gallery + real total)
+  onScreenshotsUpdated: (callback: (screenshots: string[], total: number) => void) => {
+    ipcRenderer.on('screenshots-updated', (_event, screenshots, total) => {
+      callback(screenshots, typeof total === 'number' ? total : screenshots.length)
     })
   },
   removeScreenshotsUpdatedListener: () => {
@@ -354,8 +355,29 @@ const api = {
     ipcRenderer.invoke('search-company-info', companyName) as Promise<string>,
   getResumeData: () => ipcRenderer.invoke('get-resume-data') as Promise<ResumeData>,
   updateResumeData: (data: Partial<ResumeData>) =>
-    ipcRenderer.invoke('update-resume-data', data)
+    ipcRenderer.invoke('update-resume-data', data),
 
+  triggerAction: (action: string) => ipcRenderer.invoke('triggerAction', action) as Promise<boolean>,
+  setToolbarVisible: (visible: boolean) => ipcRenderer.invoke('setToolbarVisible', visible),
+  onSyncToolbarSettings: (callback: (settings: { hoverDelay: number }) => void) => {
+    ipcRenderer.on('sync-toolbar-settings', (_event, settings) => {
+      callback(settings)
+    })
+  },
+  removeSyncToolbarSettingsListener: () => {
+    ipcRenderer.removeAllListeners('sync-toolbar-settings')
+  },
+  startWindowResize: (direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw') =>
+    ipcRenderer.send('window-resize-start', direction),
+  stopWindowResize: () => ipcRenderer.send('window-resize-stop'),
+  onAdjustOpacity: (callback: (delta: number) => void) => {
+    ipcRenderer.on('adjust-opacity', (_event, delta) => {
+      callback(delta)
+    })
+  },
+  removeAdjustOpacityListener: () => {
+    ipcRenderer.removeAllListeners('adjust-opacity')
+  }
 }
 
 export type MainAPI = typeof api

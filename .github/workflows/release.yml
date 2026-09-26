@@ -1,21 +1,19 @@
-name: Build and Release Electron App
+name: Windows Release
 
 on:
   push:
     tags:
-      - 'v*' # Trigger only on version tags like v1.0.0
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
-  contents: write # required for creating releases & uploading assets
+  contents: write
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
-
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -25,37 +23,50 @@ jobs:
         with:
           node-version: 22
 
+      - name: Read app version
+        id: meta
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Package Electron app
-        run: npm run build:${{ matrix.os == 'windows-latest' && 'win' || 'mac' }}
+      - name: Package Windows installer
+        run: npm run build && npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: electron-build-${{ matrix.os }}
-          path: dist/** # electron-builder output folder
+          name: interview-coder-cn-windows
+          path: |
+            dist-pkg/*.exe
+            dist-pkg/*.exe.blockmap
+            dist-pkg/latest.yml
 
   release:
-    needs: build
+    needs: build-windows
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
-          path: ./dist
+          name: interview-coder-cn-windows
+          path: ./dist-pkg
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}-win.{1}', needs.build-windows.outputs.version, github.run_number) }}
+          name: Windows ${{ needs.build-windows.outputs.version }}
+          draft: ${{ github.ref_type != 'tag' }}
+          generate_release_notes: true
           files: |
-            dist/**/interview-coder-cn-*.dmg
-            dist/**/interview-coder-cn-*.exe
-            dist/**/interview-coder-cn-*.exe.blockmap
-            dist/**/latest.yml
+            dist-pkg/*.exe
+            dist-pkg/*.exe.blockmap
+            dist-pkg/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
